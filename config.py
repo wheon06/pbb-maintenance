@@ -6,6 +6,12 @@ SERVICE_KEY = os.environ.get("SERVICE_KEY", "")
 BASE_URL = "https://apis.data.go.kr/B551177/statusOfAllFltDeOdp"
 NUM_OF_ROWS = 1000
 
+TARGET_TERMINAL_MAP = {
+    "T1": "P01",
+    "탑승동": "P02",
+    "T2": "P03",
+}
+
 TERMINAL_MAP = {
     "P01": "T1(제1터미널)",
     "P02": "탑승동",
