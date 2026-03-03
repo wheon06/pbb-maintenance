@@ -120,8 +120,6 @@ def render(tab, today, now, min_date, max_date):
                         search_time.strftime("%H%M"),
                     )
 
-                st.caption(f"조회 소요시간: {elapsed:.2f}초")
-
                 if not gate_flights:
                     st.error(f"게이트 **{gate_value}** 에 배정된 운항편이 없습니다.")
                 else:
