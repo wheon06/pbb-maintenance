@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from io import BytesIO
@@ -7,6 +6,8 @@ from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
 import config
+from models import FlightItem, FlightType
+from services import TaggedFlight
 from utils import format_date, format_time
 
 THIN_BORDER = Border(
@@ -17,30 +18,29 @@ THIN_BORDER = Border(
 )
 
 
-def _resolve_cell_value(item: dict, field: str, flight_type: str) -> str:
+def _resolve_cell_value(item: FlightItem, field: str, flight_type: FlightType) -> str:
     if field == "_date":
-        return format_date(str(item.get("scheduled_datetime", "") or ""))
+        return format_date(item.scheduled_datetime)
 
     elif field == "_flight_type":
-        return flight_type
+        return flight_type.value
 
     elif field in ("scheduled_datetime", "actual_datetime"):
-        return format_time(str(item.get(field, "") or ""))
+        return format_time(getattr(item, field, ""))
 
     elif field == "_departure_airport":
-        return item.get("airport_name", "-") if flight_type == "A" else "-"
+        return item.airport_name or "-" if flight_type is FlightType.ARRIVAL else "-"
 
     elif field == "_arrival_airport":
-        return item.get("airport_name", "-") if flight_type == "D" else "-"
+        return item.airport_name or "-" if flight_type is FlightType.DEPARTURE else "-"
 
     else:
-        return item.get(field, "-") or "-"
+        return getattr(item, field, "") or "-"
 
 
-def write_excel_sheet(workbook: Workbook, sheet_name: str, all_items: list[tuple[dict, str]]):
+def write_excel_sheet(workbook: Workbook, sheet_name: str, all_items: list[TaggedFlight]):
     worksheet = workbook.create_sheet(title=sheet_name)
 
-    # ── 1행: 헤더 작성 ──
     for column_index, (column_name, _) in enumerate(config.EXCEL_COLUMNS, 1):
         cell = worksheet.cell(row=1, column=column_index, value=column_name)
         cell.fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
@@ -48,23 +48,17 @@ def write_excel_sheet(workbook: Workbook, sheet_name: str, all_items: list[tuple
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = THIN_BORDER
 
-    # ── 필터링: codeshare가 "Master"인 항공편만 ──
-    all_items = [(item, flight_type) for item, flight_type in all_items
-                 if item.get("codeshare") == "Master"]
+    master_items = [tf for tf in all_items if tf.item.is_master]
+    master_items.sort(key=lambda tf: tf.item.scheduled_datetime)
 
-    # ── 정렬: 계획 시각 기준 시간순 ──
-    all_items.sort(key=lambda x: x[0].get("scheduled_datetime", "") or "")
-
-    # ── 데이터 행 작성 ──
-    for row_index, (item, flight_type) in enumerate(all_items, 2):
+    for row_index, tagged in enumerate(master_items, 2):
         for column_index, (_, field) in enumerate(config.EXCEL_COLUMNS, 1):
-            value = _resolve_cell_value(item, field, flight_type)
+            value = _resolve_cell_value(tagged.item, field, tagged.flight_type)
             cell = worksheet.cell(row=row_index, column=column_index, value=value)
             cell.font = Font(name="맑은 고딕", size=10)
             cell.alignment = Alignment(horizontal="center", vertical="center")
             cell.border = THIN_BORDER
 
-    # ── 컬럼 너비 자동 조절 ──
     for column_index in range(1, len(config.EXCEL_COLUMNS) + 1):
         max_length = 0
         for row in worksheet.iter_rows(min_col=column_index, max_col=column_index, values_only=True):
@@ -73,17 +67,16 @@ def write_excel_sheet(workbook: Workbook, sheet_name: str, all_items: list[tuple
             max_length = max(max_length, length)
         worksheet.column_dimensions[get_column_letter(column_index)].width = max(max_length + 3, 10)
 
-    # ── 자동 필터 설정 ──
     worksheet.auto_filter.ref = worksheet.dimensions
 
 
-def create_excel_file(terminal_items: dict[str, list[tuple[dict, str]]]) -> Workbook:
+def create_excel_file(terminal_items: dict[str, list[TaggedFlight]]) -> Workbook:
     workbook = Workbook()
     workbook.remove(workbook.active)
 
-    for terminal_id, sheet_name in config.SHEET_ORDER:
-        items = terminal_items.get(terminal_id, [])
-        write_excel_sheet(workbook, sheet_name, items)
+    for terminal in config.TERMINALS:
+        items = terminal_items.get(terminal.terminal_id, [])
+        write_excel_sheet(workbook, terminal.name, items)
 
     return workbook
 

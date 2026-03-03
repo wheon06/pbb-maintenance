@@ -1,6 +1,9 @@
+from __future__ import annotations
 
 import requests
+
 import config
+from models import FlightItem, FlightType
 
 _API_FIELD_MAP = {
     "flightId":          "flight_number",
@@ -17,17 +20,18 @@ _API_FIELD_MAP = {
 }
 
 
-def _convert_to_internal(raw_item: dict) -> dict:
-    return {
-        internal_name: raw_item.get(api_name)
-        for api_name, internal_name in _API_FIELD_MAP.items()
-        if raw_item.get(api_name) is not None
-    }
+def _to_flight_item(raw: dict) -> FlightItem:
+    kwargs = {}
+    for api_name, field_name in _API_FIELD_MAP.items():
+        value = raw.get(api_name)
+        if value is not None:
+            kwargs[field_name] = str(value)
+    return FlightItem(**kwargs)
 
 
-def _fetch_raw_flights(operation: str, search_date: str) -> list[dict]:
+def _fetch_pages(operation: str, search_date: str, **extra_params) -> list[dict]:
     url = f"{config.BASE_URL}/{operation}"
-    all_items = []
+    all_items: list[dict] = []
     page_number = 1
 
     while True:
@@ -37,9 +41,10 @@ def _fetch_raw_flights(operation: str, search_date: str) -> list[dict]:
             "numOfRows": config.NUM_OF_ROWS,
             "pageNo": page_number,
             "searchDate": search_date,
+            "passengerOrCargo": "P",
+            **extra_params,
         }
 
-        print(f"  [{operation}] 페이지 {page_number} 요청 중...")
         response = requests.get(url, params=params, timeout=30)
         response.raise_for_status()
         data = response.json()
@@ -52,8 +57,6 @@ def _fetch_raw_flights(operation: str, search_date: str) -> list[dict]:
             break
 
         all_items.extend(items)
-        print(f"  [{operation}] 페이지 {page_number}: {len(items)}건 수신 "
-              f"(누적 {len(all_items)}/{total_count})")
 
         if len(all_items) >= total_count:
             break
@@ -63,6 +66,6 @@ def _fetch_raw_flights(operation: str, search_date: str) -> list[dict]:
     return all_items
 
 
-def fetch_all_flights(operation: str, search_date: str) -> list[dict]:
-    raw_items = _fetch_raw_flights(operation, search_date)
-    return [_convert_to_internal(raw_item) for raw_item in raw_items]
+def fetch_flights(flight_type: FlightType, search_date: str, **extra_params) -> list[FlightItem]:
+    raw_items = _fetch_pages(flight_type.operation, search_date, **extra_params)
+    return [_to_flight_item(raw) for raw in raw_items]
